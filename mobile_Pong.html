@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Pong mit Fußballfeld</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #e1f5d0;
+      font-family: Arial, sans-serif;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: #9be47d;
+      border: 6px solid #2f4f2f;
+    }
+    #startMenu {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: #d7f3c3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #startMenu input, #startMenu button {
+      padding: 12px;
+      margin: 8px;
+      font-size: 18px;
+      border: 1px solid #999;
+      border-radius: 6px;
+    }
+    #startMenu button {
+      background: #2f4f2f;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+<div id="startMenu">
+  <h1>Pong im Fußballfeld-Stil</h1>
+  <input type="text" id="player1Name" placeholder="Spieler 1 Name">
+  <input type="text" id="player2Name" placeholder="Spieler 2 Name">
+  <button onclick="startGame()">Start</button>
+</div>
+<canvas id="gameCanvas" width="1200" height="750"></canvas>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let player1 = { y: 300, score: 0, name: "Spieler 1", freeze: false, freezeTimer: 0 };
+let player2 = { y: 300, score: 0, name: "Spieler 2", freeze: false, freezeTimer: 0 };
+
+const paddleWidth = 15;
+const paddleHeight = 120;
+const ballRadius = 20;
+
+let ball = {
+  x: canvas.width / 2,
+  y: canvas.height / 2,
+  dx: 5,
+  dy: 3,
+  speed: 1
+};
+
+let hitCount = 0;
+let elapsedTime = 0;
+let startTime = 0;
+let gameStarted = false;
+let keys = {};
+const maxScore = 5;
+let showScoreTimer = 0;
+let scoringPlayer = null;
+
+let rotators = [
+  { x: canvas.width / 2, y: 250, angle: 0 },
+  { x: canvas.width / 2, y: 500, angle: 0 }
+];
+
+let projectiles = [];
+function launchProjectile(rotator) {
+  const angle = rotator.angle;
+  const speed = 6;
+  projectiles.push({
+    x: rotator.x + Math.cos(angle) * 40,
+    y: rotator.y + Math.sin(angle) * 40,
+    dx: Math.cos(angle) * speed,
+    dy: Math.sin(angle) * speed,
+    radius: 8
+  });
+}
+setInterval(() => {
+  if (gameStarted) {
+    const rotator = rotators[Math.floor(Math.random() * rotators.length)];
+    launchProjectile(rotator);
+  }
+}, 2000);
+
+function startGame() {
+  const name1 = document.getElementById('player1Name').value.trim();
+  const name2 = document.getElementById('player2Name').value.trim();
+  if (name1) player1.name = name1;
+  if (name2) player2.name = name2;
+
+  document.getElementById('startMenu').style.display = 'none';
+  startTime = Date.now();
+  resetBall();
+  gameStarted = true;
+  requestAnimationFrame(gameLoop);
+}
+function resetBall() {
+  ball.x = canvas.width / 2;
+  ball.y = canvas.height / 2;
+  ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1);
+  ball.dy = 3 * (Math.random() * 2 - 1);
+  ball.speed = 1;
+  hitCount = 0;
+}
+document.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+function update() {
+  if (!gameStarted || showScoreTimer > 0) {
+    if (showScoreTimer > 0) showScoreTimer -= 16;
+    return;
+  }
+  elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+  if (keys['q'] && player1.y > 0 && !player1.freeze) player1.y -= 7;
+  if (keys['a'] && player1.y < canvas.height - paddleHeight && !player1.freeze) player1.y += 7;
+  if (keys['arrowup'] && player2.y > 0 && !player2.freeze) player2.y -= 7;
+  if (keys['arrowdown'] && player2.y < canvas.height - paddleHeight && !player2.freeze) player2.y += 7;
+
+  [player1, player2].forEach(p => {
+    if (p.freeze) {
+      p.freezeTimer -= 16;
+      if (p.freezeTimer <= 0) p.freeze = false;
+    }
+  });
+
+  ball.x += ball.dx * ball.speed;
+  ball.y += ball.dy * ball.speed;
+  if (ball.y - ballRadius < 0 || ball.y + ballRadius > canvas.height) ball.dy *= -1;
+
+  if (ball.x - ballRadius < paddleWidth && ball.y > player1.y && ball.y < player1.y + paddleHeight)
+    reflectBall(player1.y);
+  if (ball.x + ballRadius > canvas.width - paddleWidth && ball.y > player2.y && ball.y < player2.y + paddleHeight)
+    reflectBall(player2.y, true);
+
+  if (ball.x < 0) {
+    player2.score++;
+    scoringPlayer = player2.name;
+    if (player2.score >= maxScore) endGame(player2.name);
+    showScoreTimer = 3000;
+    resetBall();
+  }
+  if (ball.x > canvas.width) {
+    player1.score++;
+    scoringPlayer = player1.name;
+    if (player1.score >= maxScore) endGame(player1.name);
+    showScoreTimer = 3000;
+    resetBall();
+  }
+
+  rotators.forEach(r => {
+    r.angle += 0.05;
+    const rx = r.x + Math.cos(r.angle) * 40;
+    const ry = r.y + Math.sin(r.angle) * 40;
+    if (ball.x + ballRadius > rx - 10 && ball.x - ballRadius < rx + 10 &&
+        ball.y + ballRadius > ry - 50 && ball.y - ballRadius < ry + 50) {
+      ball.dx *= -1;
+      ball.speed *= 1.2;
+    }
+  });
+
+  projectiles.forEach(p => {
+    p.x += p.dx;
+    p.y += p.dy;
+  });
+  projectiles = projectiles.filter(p => {
+    const hitP1 = p.x - p.radius < paddleWidth && p.y > player1.y && p.y < player1.y + paddleHeight;
+    const hitP2 = p.x + p.radius > canvas.width - paddleWidth && p.y > player2.y && p.y < player2.y + paddleHeight;
+    if (hitP1) {
+      player1.freeze = true;
+      player1.freezeTimer = 2000;
+      return false;
+    }
+    if (hitP2) {
+      player2.freeze = true;
+      player2.freezeTimer = 2000;
+      return false;
+    }
+    return p.x > -20 && p.x < canvas.width + 20;
+  });
+}
+function reflectBall(paddleY, isRight = false) {
+  const offset = (ball.y - (paddleY + paddleHeight / 2)) / (paddleHeight / 2);
+  const angle = offset * Math.PI / 3;
+  const dir = isRight ? -1 : 1;
+  const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+  ball.dx = speed * Math.cos(angle) * dir;
+  ball.dy = speed * Math.sin(angle);
+  hitCount++;
+  if (hitCount % 3 === 0) ball.speed *= 1.15;
+}
+function drawField() {
+  ctx.fillStyle = "#88cc88";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 0);
+  ctx.lineTo(canvas.width / 2, canvas.height);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(canvas.width / 2, canvas.height / 2, 100, 0, Math.PI * 2);
+  ctx.stroke();
+}
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawField();
+
+  ctx.fillStyle = "#222";
+  ctx.fillRect(0, player1.y, paddleWidth, paddleHeight);
+  ctx.fillRect(canvas.width - paddleWidth, player2.y, paddleWidth, paddleHeight);
+
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI * 2);
+  ctx.fillStyle = "#333";
+  ctx.fill();
+
+  rotators.forEach(r => {
+    const rx = r.x + Math.cos(r.angle) * 40;
+    const ry = r.y + Math.sin(r.angle) * 40;
+    ctx.save();
+    ctx.translate(rx, ry);
+    ctx.rotate(r.angle);
+    ctx.fillStyle = "#ff5555";
+    ctx.fillRect(-10, -50, 20, 100);
+    ctx.restore();
+  });
+
+  ctx.fillStyle = "crimson";
+  projectiles.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = "#000";
+  ctx.font = "20px Arial";
+  ctx.fillText(`${player1.name}: ${player1.score}`, 30, 30);
+  ctx.fillText(`${player2.name}: ${player2.score}`, canvas.width - 180, 30);
+  ctx.fillText(`Zeit: ${elapsedTime}s`, canvas.width / 2 - 50, 30);
+
+  if (player1.freeze) ctx.fillRect(0, player1.y, paddleWidth, paddleHeight);
+  if (player2.freeze) ctx.fillRect(canvas.width - paddleWidth, player2.y, paddleWidth, paddleHeight);
+
+  if (showScoreTimer > 0) {
+    ctx.fillStyle = "#000";
+    ctx.font = "bold 60px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(`${scoringPlayer} erzielt einen Punkt!`, canvas.width / 2, canvas.height / 2);
+    ctx.textAlign = "left";
+  }
+}
+function endGame(winnerName) {
+  alert(`🏁 ${winnerName} gewinnt!`);
+  location.reload();
+}
+function gameLoop() {
+  update();
+  draw();
+  if (gameStarted) requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
